@@ -663,16 +663,16 @@ img {
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 14px 18px;
+  gap: 18px 22px;
   min-height: 290px;
-  padding: 20px;
+  padding: 22px;
   overflow: hidden;
 }
 
 .word-cloud.compact {
   min-height: 170px;
-  gap: 10px 14px;
-  padding: 8px;
+  gap: 12px 16px;
+  padding: 10px;
 }
 
 .cloud-word {
@@ -680,9 +680,14 @@ img {
   align-items: flex-start;
   gap: 3px;
   font-weight: 900;
-  line-height: 1;
+  line-height: 1.12;
+  padding: 0.08em 0.18em;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
   white-space: nowrap;
-  transition: transform 220ms ease, font-size 220ms ease;
+  transform: none;
+  transition: color 220ms ease, font-size 220ms ease;
 }
 
 .cloud-word small {
@@ -995,8 +1000,9 @@ img {
 }
 
 .screen-join-panel strong {
-  font-size: clamp(56px, 8vw, 84px);
-  line-height: 0.95;
+  font-size: clamp(36px, 5vw, 54px);
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .screen-join-panel img {
@@ -1044,6 +1050,8 @@ img {
 
 .screen-content .word-cloud {
   min-height: 430px;
+  align-content: center;
+  gap: 24px 30px;
 }
 
 .screen-waiting {

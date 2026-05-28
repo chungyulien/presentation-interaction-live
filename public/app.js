@@ -13,7 +13,9 @@ const state = {
   lastSentWord: "",
   route: getRoute(),
   reconnectTimer: null,
-  heartbeatTimer: null
+  heartbeatTimer: null,
+  audioContext: null,
+  audioUnlocked: false
 };
 
 connect();
@@ -23,6 +25,8 @@ document.addEventListener("click", handleClick);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("change", handleChange);
 document.addEventListener("input", handleInput);
+document.addEventListener("pointerdown", primeAudio, { passive: true });
+document.addEventListener("keydown", primeAudio);
 
 function connect() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -48,10 +52,12 @@ function connect() {
       return;
     }
     if (message.type === "snapshot") {
+      const shouldChime = shouldPlayWordArrival(state.snapshot, message.snapshot);
       state.closed = false;
       state.snapshot = message.snapshot;
       ensureSelectedActivity();
       render();
+      if (shouldChime) playWordChime();
       return;
     }
     if (message.type === "room:closed") {
@@ -84,6 +90,60 @@ function startHeartbeat() {
 function stopHeartbeat() {
   clearInterval(state.heartbeatTimer);
   state.heartbeatTimer = null;
+}
+
+function getAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!state.audioContext) state.audioContext = new AudioContextClass();
+  return state.audioContext;
+}
+
+function primeAudio() {
+  const context = getAudioContext();
+  if (!context) return;
+  const resumePromise = context.resume?.();
+  if (resumePromise) resumePromise.catch(() => {});
+  state.audioUnlocked = true;
+}
+
+function playWordChime() {
+  const context = getAudioContext();
+  if (!context || !state.audioUnlocked) return;
+  const now = context.currentTime;
+  const masterGain = context.createGain();
+  masterGain.gain.setValueAtTime(0.0001, now);
+  masterGain.gain.exponentialRampToValueAtTime(0.11, now + 0.018);
+  masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+  masterGain.connect(context.destination);
+
+  [659.25, 880].forEach((frequency, index) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(frequency, now + index * 0.055);
+    gain.gain.setValueAtTime(0.0001, now + index * 0.055);
+    gain.gain.exponentialRampToValueAtTime(1, now + 0.035 + index * 0.055);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.36 + index * 0.055);
+    oscillator.connect(gain).connect(masterGain);
+    oscillator.start(now + index * 0.055);
+    oscillator.stop(now + 0.5 + index * 0.055);
+  });
+}
+
+function shouldPlayWordArrival(previousSnapshot, nextSnapshot) {
+  if (!previousSnapshot || !nextSnapshot || state.route.view === "participant") return false;
+  const activeActivity = nextSnapshot.activities.find(
+    (activity) => activity.id === nextSnapshot.currentActivityId && activity.type === "wordcloud"
+  );
+  if (!activeActivity) return false;
+  const previousActivity = previousSnapshot.activities.find((activity) => activity.id === activeActivity.id);
+  if (!previousActivity) return false;
+  return getWordTotal(activeActivity) > getWordTotal(previousActivity);
+}
+
+function getWordTotal(activity) {
+  return activity?.words?.reduce((sum, word) => sum + word.count, 0) || activity?.responseCount || 0;
 }
 
 async function restoreContext() {
@@ -515,7 +575,6 @@ function renderChoiceResults(activity, compact = false) {
 
 function renderWordCloud(words = [], compact = false) {
   if (!words.length) return `<div class="empty-results">${icon("cloud", 30)}<p>文字會在觀眾送出後即時浮現</p></div>`;
-  const rotations = [-8, 0, 6, -4, 9, 0, -10, 5];
   const colors = ["#159e97", "#2d8bd7", "#f5a524", "#ff6f61", "#3d4758", "#7c6ee6"];
   const topCount = Math.max(...words.map((word) => word.count), 1);
   return `
@@ -524,8 +583,8 @@ function renderWordCloud(words = [], compact = false) {
         .slice(0, compact ? 18 : 40)
         .map((word, index) => {
           const weight = word.count / topCount;
-          const size = compact ? 18 + weight * 30 : 22 + weight * 46;
-          return `<span class="cloud-word" style="color:${colors[index % colors.length]};font-size:${size}px;transform:rotate(${rotations[index % rotations.length]}deg)">${escapeHtml(word.text)}${word.count > 1 ? `<small>${word.count}</small>` : ""}</span>`;
+          const size = compact ? 17 + weight * 26 : 21 + weight * 40;
+          return `<span class="cloud-word" style="color:${colors[index % colors.length]};font-size:${size}px">${escapeHtml(word.text)}${word.count > 1 ? `<small>${word.count}</small>` : ""}</span>`;
         })
         .join("")}
     </div>
@@ -636,6 +695,7 @@ async function handleSubmit(event) {
     });
     if (response.ok) {
       state.lastSentWord = response.text;
+      playWordChime();
       setTimeout(() => {
         state.lastSentWord = "";
         render();

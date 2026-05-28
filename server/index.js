@@ -396,15 +396,15 @@ function createDefaultActivities() {
       id: "choice-main",
       type: "choice",
       status: "draft",
-      title: "你覺得今天的內容哪一部分最有收穫？",
+      title: "您常用AI做哪些事情?",
       mode: "single",
       showResults: true,
       responseVersion: 1,
       options: [
-        { id: "opt-a", text: "概念講解", color: "#159e97" },
-        { id: "opt-b", text: "實作示範", color: "#2d8bd7" },
-        { id: "opt-c", text: "分組討論", color: "#f5a524" },
-        { id: "opt-d", text: "案例分享", color: "#ff6f61" }
+        { id: "opt-a", text: "生成圖片", color: "#159e97" },
+        { id: "opt-b", text: "製作影片", color: "#2d8bd7" },
+        { id: "opt-c", text: "產出音檔", color: "#f5a524" },
+        { id: "opt-d", text: "設計遊戲", color: "#ff6f61" }
       ],
       answers: {}
     },
