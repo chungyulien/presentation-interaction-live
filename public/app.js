@@ -15,7 +15,8 @@ const state = {
   reconnectTimer: null,
   heartbeatTimer: null,
   audioContext: null,
-  audioUnlocked: false
+  audioUnlocked: false,
+  pendingWordChimes: 0
 };
 
 connect();
@@ -52,12 +53,12 @@ function connect() {
       return;
     }
     if (message.type === "snapshot") {
-      const shouldChime = shouldPlayWordArrival(state.snapshot, message.snapshot);
+      const shouldChime = shouldPlayOperatorWordChime(state.snapshot, message.snapshot);
       state.closed = false;
       state.snapshot = message.snapshot;
       ensureSelectedActivity();
       render();
-      if (shouldChime) playWordChime();
+      if (shouldChime) queueOrPlayWordChime("operator");
       return;
     }
     if (message.type === "room:closed") {
@@ -105,19 +106,50 @@ function primeAudio() {
   const resumePromise = context.resume?.();
   if (resumePromise) resumePromise.catch(() => {});
   state.audioUnlocked = true;
+  flushPendingWordChimes();
 }
 
-function playWordChime() {
+function flushPendingWordChimes() {
+  if (!state.audioUnlocked || !state.pendingWordChimes) return;
+  const pending = state.pendingWordChimes;
+  state.pendingWordChimes = 0;
+  for (let index = 0; index < Math.min(pending, 3); index += 1) {
+    setTimeout(() => playWordChime("operator"), index * 120);
+  }
+}
+
+function queueOrPlayWordChime(variant = "operator") {
+  if (!state.audioUnlocked) {
+    if (variant === "operator") state.pendingWordChimes += 1;
+    return;
+  }
+  playWordChime(variant);
+}
+
+function playWordChime(variant = "participant", resumeAttempted = false) {
   const context = getAudioContext();
   if (!context || !state.audioUnlocked) return;
+  if (context.state === "suspended" && !resumeAttempted) {
+    const resumePromise = context.resume?.();
+    if (resumePromise) {
+      resumePromise
+        .then(() => playWordChime(variant, true))
+        .catch(() => {
+          if (variant === "operator") state.pendingWordChimes += 1;
+        });
+      return;
+    }
+  }
   const now = context.currentTime;
+  const frequencies = variant === "operator" ? [523.25, 783.99, 1046.5] : [659.25, 880];
+  const volume = variant === "operator" ? 0.14 : 0.11;
   const masterGain = context.createGain();
   masterGain.gain.setValueAtTime(0.0001, now);
-  masterGain.gain.exponentialRampToValueAtTime(0.11, now + 0.018);
-  masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+  masterGain.gain.exponentialRampToValueAtTime(volume, now + 0.018);
+  masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
   masterGain.connect(context.destination);
 
-  [659.25, 880].forEach((frequency, index) => {
+  frequencies.forEach((frequency, index) => {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.type = "sine";
@@ -127,11 +159,11 @@ function playWordChime() {
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.36 + index * 0.055);
     oscillator.connect(gain).connect(masterGain);
     oscillator.start(now + index * 0.055);
-    oscillator.stop(now + 0.5 + index * 0.055);
+    oscillator.stop(now + 0.58 + index * 0.055);
   });
 }
 
-function shouldPlayWordArrival(previousSnapshot, nextSnapshot) {
+function shouldPlayOperatorWordChime(previousSnapshot, nextSnapshot) {
   if (!previousSnapshot || !nextSnapshot || state.route.view === "participant") return false;
   const activeActivity = nextSnapshot.activities.find(
     (activity) => activity.id === nextSnapshot.currentActivityId && activity.type === "wordcloud"
@@ -592,6 +624,7 @@ function renderWordCloud(words = [], compact = false) {
 }
 
 async function handleClick(event) {
+  primeAudio();
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
@@ -666,6 +699,7 @@ async function handleClick(event) {
 }
 
 async function handleSubmit(event) {
+  primeAudio();
   const form = event.target.closest("[data-form]");
   if (!form) return;
   event.preventDefault();
@@ -695,7 +729,7 @@ async function handleSubmit(event) {
     });
     if (response.ok) {
       state.lastSentWord = response.text;
-      playWordChime();
+      queueOrPlayWordChime("participant");
       setTimeout(() => {
         state.lastSentWord = "";
         render();

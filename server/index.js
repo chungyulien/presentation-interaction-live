@@ -126,7 +126,11 @@ async function serveHttp(req, res) {
       ".ico": "image/x-icon"
     }[ext] || "application/octet-stream";
 
-  res.writeHead(200, { "content-type": type });
+  const headers = { "content-type": type };
+  if ([".html", ".js", ".css"].includes(ext)) {
+    headers["cache-control"] = "no-cache";
+  }
+  res.writeHead(200, headers);
   fs.createReadStream(filePath).pipe(res);
 }
 
