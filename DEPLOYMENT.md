@@ -6,11 +6,10 @@
 
 ### 方式一：用 `render.yaml`
 
-1. 將此資料夾推到 GitHub。
+1. 開啟 Render 部署連結：https://render.com/deploy?repo=https://github.com/chungyulien/presentation-interaction-live
 2. 登入 Render。
-3. 選擇 New > Blueprint。
-4. 連接這個 GitHub repository。
-5. Render 會讀取 `render.yaml`，建立 `presentation-interaction-live` 服務。
+3. 依畫面建立 Blueprint。
+4. Render 會讀取 `render.yaml`，建立 `presentation-interaction-live` 服務。
 
 ### 方式二：手動建立 Web Service
 

@@ -40,6 +40,8 @@ http://localhost:4000
 
 此專案已加入 Render 上架設定：
 
+[用 Render 部署](https://render.com/deploy?repo=https://github.com/chungyulien/presentation-interaction-live)
+
 - `render.yaml`：Render Blueprint，可建立免費 Node.js Web Service。
 - `Procfile`：支援其他會讀取 Procfile 的 Node.js 主機。
 - `/api/health`：雲端平台健康檢查路徑。

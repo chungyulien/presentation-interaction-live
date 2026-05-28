@@ -9,8 +9,14 @@ $serverErrorLog = Join-Path $logsDir "server-error.log"
 $tunnelLog = Join-Path $logsDir "tunnel.log"
 $tunnelErrorLog = Join-Path $logsDir "tunnel-error.log"
 $nodePath = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
+$serverPath = Join-Path $projectRoot "server\index.js"
 
 New-Item -ItemType Directory -Force -Path $toolsDir, $logsDir | Out-Null
+foreach ($logPath in @($serverLog, $serverErrorLog, $tunnelLog, $tunnelErrorLog)) {
+  if (Test-Path $logPath) {
+    Remove-Item -LiteralPath $logPath -Force
+  }
+}
 
 if (!(Test-Path $cloudflared)) {
   $downloadUrl = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
@@ -20,7 +26,7 @@ if (!(Test-Path $cloudflared)) {
 if (!(Test-Path $nodePath)) {
   $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
   if (!$nodeCommand) {
-    throw "找不到 Node.js。請先安裝 Node.js，或在 Codex 內建執行環境中啟動。"
+    throw "Node.js was not found. Please install Node.js or run inside the bundled Codex runtime."
   }
   $nodePath = $nodeCommand.Source
 }
@@ -28,12 +34,8 @@ if (!(Test-Path $nodePath)) {
 try {
   Invoke-RestMethod "http://localhost:4000/api/health" -TimeoutSec 2 | Out-Null
 } catch {
-  Start-Process -FilePath $nodePath -ArgumentList @((Join-Path $projectRoot "server\index.js")) -WorkingDirectory $projectRoot -RedirectStandardOutput $serverLog -RedirectStandardError $serverErrorLog -WindowStyle Hidden | Out-Null
+  Start-Process -FilePath $nodePath -ArgumentList "`"$serverPath`"" -WorkingDirectory $projectRoot -RedirectStandardOutput $serverLog -RedirectStandardError $serverErrorLog -WindowStyle Hidden | Out-Null
   Start-Sleep -Seconds 2
-}
-
-if (Test-Path $tunnelLog) {
-  Remove-Item -LiteralPath $tunnelLog -Force
 }
 
 Start-Process -FilePath $cloudflared -ArgumentList @("tunnel", "--url", "http://localhost:4000") -WorkingDirectory $projectRoot -RedirectStandardOutput $tunnelLog -RedirectStandardError $tunnelErrorLog -WindowStyle Hidden | Out-Null
@@ -52,12 +54,12 @@ for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
 }
 
 if (!$publicUrl) {
-  throw "公開網址建立失敗，請查看 $tunnelLog。"
+  throw "Could not create a public preview URL. Check $tunnelLog."
 }
 
 Write-Host ""
-Write-Host "臨時公開網址：$publicUrl"
-Write-Host "講者端：$publicUrl"
-Write-Host "觀眾端：請先在講者端建立房間，再掃描 QR Code 或輸入 PIN。"
+Write-Host "Temporary public URL: $publicUrl"
+Write-Host "Presenter URL: $publicUrl"
+Write-Host "Audience: create a room first, then scan the QR Code or enter the PIN."
 Write-Host ""
-Write-Host "注意：這是 Cloudflare Quick Tunnel 臨時網址，關閉電腦或停止背景程式後就會失效。"
+Write-Host "Note: this Cloudflare Quick Tunnel URL is temporary and stops working if this computer or the background tunnel stops."
