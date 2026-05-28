@@ -31,6 +31,12 @@
 .\start-public-preview.ps1
 ```
 
+如果 Windows 顯示不允許執行腳本，可改用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-public-preview.ps1
+```
+
 它會產生 `https://...trycloudflare.com` 臨時網址。這個網址適合測試，不適合當正式長期網址。
 
 ## 目前資料保存方式

@@ -18,6 +18,12 @@
 .\start-site.ps1
 ```
 
+如果 Windows 顯示不允許執行腳本，可改用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-site.ps1
+```
+
 啟動後開啟：
 
 ```text
@@ -32,6 +38,12 @@ http://localhost:4000
 
 ```powershell
 .\start-public-preview.ps1
+```
+
+如果 Windows 顯示不允許執行腳本，可改用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-public-preview.ps1
 ```
 
 腳本會啟動本機網站，並透過 Cloudflare Quick Tunnel 產生一個 `trycloudflare.com` 的臨時公開網址。這個網址適合課堂前測試或臨時分享；關閉電腦、停止背景程式或 Tunnel 重啟後，網址可能會失效。
