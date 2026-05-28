@@ -412,7 +412,7 @@ function createDefaultActivities() {
       id: "cloud-main",
       type: "wordcloud",
       status: "draft",
-      title: "請用一個詞形容今天的課程",
+      title: "您期待AI能幫您做到哪件事情?",
       showResults: true,
       responseVersion: 1,
       submissions: []
