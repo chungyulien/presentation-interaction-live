@@ -206,11 +206,6 @@ async function restoreContext() {
   if (state.route.view === "screen" && state.route.pin) {
     await request("screen:join", { pin: state.route.pin });
   }
-  if (state.route.view === "participant" && state.route.pin && !state.joined) {
-    const response = await request("participant:join", { pin: state.route.pin, name: "" });
-    if (response.ok) state.joined = true;
-    render();
-  }
 }
 
 function request(type, payload = {}) {
@@ -492,7 +487,7 @@ function renderAudience() {
           <span class="audience-brand">互動堂 Live</span>
           <h1>${state.closed ? "房間已關閉" : "輸入 PIN 加入互動"}</h1>
           <label class="field"><span>Room PIN</span><input name="pin" value="${attr(state.route.pin || "")}" maxlength="6" placeholder="ABC123" /></label>
-          <label class="field"><span>暱稱（可留空）</span><input name="name" maxlength="18" placeholder="例如：小安" /></label>
+          <label class="field"><span>姓名</span><input name="name" maxlength="18" placeholder="例如：小安" autocomplete="name" required /></label>
           <button class="primary-action" ${state.connected ? "" : "disabled"}>${icon("login")}立即加入</button>
           ${state.connected ? "" : `<span class="status-line">正在連接即時伺服器...</span>`}
           ${messageLine()}
@@ -844,7 +839,12 @@ async function handleSubmit(event) {
 
   if (form.dataset.form === "join-participant") {
     const pin = String(formData.get("pin") || "").toUpperCase();
-    const name = String(formData.get("name") || "");
+    const name = String(formData.get("name") || "").trim();
+    if (!name) {
+      state.error = "請輸入姓名後再加入。";
+      render();
+      return;
+    }
     const response = await request("participant:join", { pin, name });
     if (response.ok) state.joined = true;
     render();

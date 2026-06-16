@@ -245,8 +245,10 @@ function handleParticipantJoin(client, { pin, name }, reply) {
   const room = getRoom(pin);
   if (!room) return reply({ ok: false, error: "房間代碼不存在，請確認 PIN。" });
 
+  const displayName = sanitizeText(name, 18);
+  if (!displayName) return reply({ ok: false, error: "請輸入姓名後再加入。" });
+
   joinClientRoom(client, room.pin, "participant");
-  const displayName = sanitizeText(name, 18) || `觀眾 ${room.participants.size + 1}`;
   room.participants.set(client.id, {
     id: client.id,
     name: displayName,
