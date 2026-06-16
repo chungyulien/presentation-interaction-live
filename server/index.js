@@ -11,6 +11,8 @@ const PIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_WORD_LENGTH = 15;
 const MAX_DANMAKU_LENGTH = 40;
 const MAX_DANMAKU_MESSAGES = 120;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_SUMMARY_MODEL = process.env.OPENAI_SUMMARY_MODEL || "gpt-4.1-mini";
 const BLOCKED_TERMS = ["髒話", "白痴", "笨蛋", "badword", "spam"];
 
 const __filename = fileURLToPath(import.meta.url);
@@ -205,6 +207,9 @@ function handleMessage(client, rawMessage) {
   if (type === "host:go-waiting") return handleGoWaiting(payload, reply);
   if (type === "host:toggle-results") return handleToggleResults(payload, reply);
   if (type === "host:clear-responses") return handleClearResponses(payload, reply);
+  if (type === "host:draw-participant") return handleDrawParticipant(payload, reply);
+  if (type === "host:clear-draw") return handleClearDraw(payload, reply);
+  if (type === "host:summarize-wordcloud") return handleSummarizeWordcloud(payload, reply);
   if (type === "host:reset-room") return handleResetRoom(payload, reply);
   if (type === "host:close-room") return handleCloseRoom(payload, reply);
   if (type === "participant:answer-choice") return handleAnswerChoice(client, payload, reply);
@@ -270,6 +275,7 @@ function handlePublishActivity({ pin, activityId }, reply) {
   if (!activity) return reply({ ok: false, error: "找不到活動。" });
 
   room.currentActivityId = activity.id;
+  room.spotlight = null;
   room.activities.forEach((item) => {
     item.status = item.id === activity.id ? "live" : "draft";
   });
@@ -281,6 +287,7 @@ function handleGoWaiting({ pin }, reply) {
   const room = getRoom(pin);
   if (!room) return reply({ ok: false, error: "找不到房間。" });
   room.currentActivityId = null;
+  room.spotlight = null;
   room.activities.forEach((activity) => {
     activity.status = "draft";
   });
@@ -304,14 +311,59 @@ function handleClearResponses({ pin, activityId }, reply) {
   const activity = findActivity(room, activityId);
   if (!activity) return reply({ ok: false, error: "找不到活動。" });
   clearActivityResponses(activity);
+  if (room.spotlight?.activityId === activity.id) room.spotlight = null;
   reply({ ok: true, snapshot: toSnapshot(room) });
   emitSnapshot(room);
+}
+
+function handleDrawParticipant({ pin, activityId }, reply) {
+  const room = getRoom(pin);
+  if (!room) return reply({ ok: false, error: "找不到房間。" });
+  const activity = findActivity(room, activityId || room.currentActivityId);
+  if (!activity || room.currentActivityId !== activity.id) {
+    return reply({ ok: false, error: "請先發布要抽籤的活動。" });
+  }
+
+  const candidates = getRespondedParticipants(room, activity);
+  if (!candidates.length) return reply({ ok: false, error: "目前還沒有可抽出的答案。" });
+
+  const winner = candidates[Math.floor(Math.random() * candidates.length)];
+  room.spotlight = {
+    id: randomUUID(),
+    activityId: activity.id,
+    activityType: activity.type,
+    activityTitle: activity.title,
+    participantId: winner.participant.id,
+    participantName: winner.participant.name,
+    answerText: winner.answerText,
+    answerItems: winner.answerItems,
+    createdAt: Date.now()
+  };
+
+  reply({ ok: true, spotlight: room.spotlight, snapshot: toSnapshot(room) });
+  emitSnapshot(room);
+}
+
+function handleClearDraw({ pin }, reply) {
+  const room = getRoom(pin);
+  if (!room) return reply({ ok: false, error: "找不到房間。" });
+  room.spotlight = null;
+  reply({ ok: true, snapshot: toSnapshot(room) });
+  emitSnapshot(room);
+}
+
+function handleSummarizeWordcloud({ pin, activityId }, reply) {
+  summarizeWordcloud({ pin, activityId }, reply).catch((error) => {
+    console.error(error);
+    reply({ ok: false, error: "摘要產生失敗，請稍後再試。" });
+  });
 }
 
 function handleResetRoom({ pin }, reply) {
   const room = getRoom(pin);
   if (!room) return reply({ ok: false, error: "找不到房間。" });
   room.currentActivityId = null;
+  room.spotlight = null;
   room.activities = createDefaultActivities();
   reply({ ok: true, snapshot: toSnapshot(room) });
   emitSnapshot(room);
@@ -378,6 +430,7 @@ function handleSubmitWord(client, { pin, activityId, text }, reply) {
     text: clean,
     createdAt: Date.now()
   });
+  activity.summary = null;
   reply({ ok: true, text: clean });
   emitSnapshot(room);
 }
@@ -410,6 +463,167 @@ function handleSubmitDanmaku(client, { pin, activityId, text }, reply) {
   emitSnapshot(room);
 }
 
+function getRespondedParticipants(room, activity) {
+  return Array.from(room.participants.values())
+    .map((participant) => {
+      const response = getParticipantResponse(activity, participant.id);
+      if (!response) return null;
+      return { participant, ...response };
+    })
+    .filter(Boolean);
+}
+
+function getParticipantResponse(activity, participantId) {
+  if (activity.type === "choice") {
+    const selectedIds = activity.answers[participantId] || [];
+    if (!selectedIds.length) return null;
+    const selectedOptions = activity.options
+      .filter((option) => selectedIds.includes(option.id))
+      .map((option) => option.text);
+    if (!selectedOptions.length) return null;
+    return {
+      answerItems: selectedOptions,
+      answerText: selectedOptions.join("、")
+    };
+  }
+
+  if (activity.type === "wordcloud") {
+    const words = activity.submissions
+      .filter((item) => item.participantId === participantId)
+      .map((item) => item.text);
+    if (!words.length) return null;
+    return {
+      answerItems: words,
+      answerText: words.join("、")
+    };
+  }
+
+  if (activity.type === "danmaku") {
+    const messages = activity.messages
+      .filter((item) => item.participantId === participantId)
+      .map((item) => item.text);
+    if (!messages.length) return null;
+    return {
+      answerItems: messages,
+      answerText: messages.join("、")
+    };
+  }
+
+  return null;
+}
+
+async function summarizeWordcloud({ pin, activityId }, reply) {
+  const room = getRoom(pin);
+  if (!room) return reply({ ok: false, error: "找不到房間。" });
+  const activity = findActivity(room, activityId || room.currentActivityId);
+  if (!activity || activity.type !== "wordcloud") {
+    return reply({ ok: false, error: "請先選擇文字雲活動。" });
+  }
+  if (!activity.submissions.length) {
+    return reply({ ok: false, error: "目前還沒有文字雲回應可總結。" });
+  }
+
+  activity.summary = await buildWordcloudSummary(activity);
+  reply({ ok: true, summary: activity.summary, snapshot: toSnapshot(room) });
+  emitSnapshot(room);
+}
+
+async function buildWordcloudSummary(activity) {
+  const localSummary = buildLocalWordcloudSummary(activity);
+  if (!OPENAI_API_KEY) return localSummary;
+
+  try {
+    const aiText = await summarizeWithOpenAI(activity);
+    if (!aiText) return localSummary;
+    return {
+      ...localSummary,
+      text: aiText,
+      mode: "openai",
+      model: OPENAI_SUMMARY_MODEL
+    };
+  } catch (error) {
+    console.warn("OpenAI summary fallback:", error.message);
+    return localSummary;
+  }
+}
+
+function buildLocalWordcloudSummary(activity) {
+  const texts = activity.submissions.map((item) => item.text);
+  const frequency = new Map();
+  texts.forEach((text) => frequency.set(text, (frequency.get(text) || 0) + 1));
+  const topWords = Array.from(frequency.entries())
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text, "zh-Hant"))
+    .slice(0, 5);
+  const examples = [...new Set(texts)].slice(0, 6);
+  const keywordText = topWords
+    .map((word) => `「${word.text}」${word.count > 1 ? `(${word.count})` : ""}`)
+    .join("、");
+  const exampleText = examples.map((text) => `「${text}」`).join("、");
+
+  return {
+    id: randomUUID(),
+    mode: "local",
+    model: "內建摘要",
+    generatedAt: Date.now(),
+    responseCount: texts.length,
+    uniqueCount: frequency.size,
+    topWords,
+    examples,
+    text: `共收到 ${texts.length} 則回應，整理出 ${frequency.size} 種不同想法。主要焦點集中在 ${keywordText}；代表回應包括 ${exampleText}。整體來看，觀眾期待 AI 能把重複、耗時或需要靈感整理的工作變得更快、更清楚。`
+  };
+}
+
+async function summarizeWithOpenAI(activity) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+  const responses = activity.submissions
+    .slice(-120)
+    .map((item, index) => `${index + 1}. ${item.text}`)
+    .join("\n");
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${OPENAI_API_KEY}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: OPENAI_SUMMARY_MODEL,
+        input: [
+          {
+            role: "system",
+            content: "你是活動主持人的即時互動助理。請用繁體中文、台灣用語，將文字雲回應總結成投影畫面可讀的一小段。"
+          },
+          {
+            role: "user",
+            content: `題目：${activity.title}\n觀眾回應：\n${responses}\n\n請輸出 2 到 3 句，點出主要期待、共同趨勢與一個可接話的主持提示。`
+          }
+        ],
+        max_output_tokens: 220
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) return "";
+    const data = await response.json();
+    return extractOpenAIText(data);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function extractOpenAIText(data) {
+  if (typeof data.output_text === "string") return data.output_text.trim();
+  const chunks = [];
+  (data.output || []).forEach((item) => {
+    (item.content || []).forEach((content) => {
+      if (typeof content.text === "string") chunks.push(content.text);
+    });
+  });
+  return chunks.join("\n").trim();
+}
+
 function createRoom() {
   let pin = generatePin();
   while (rooms.has(pin)) pin = generatePin();
@@ -418,6 +632,7 @@ function createRoom() {
     pin,
     createdAt: Date.now(),
     currentActivityId: null,
+    spotlight: null,
     participants: new Map(),
     activities: createDefaultActivities()
   };
@@ -450,7 +665,8 @@ function createDefaultActivities() {
       title: "您期待AI能幫您做到哪件事情?",
       showResults: true,
       responseVersion: 1,
-      submissions: []
+      submissions: [],
+      summary: null
     },
     {
       id: "danmaku-main",
@@ -530,7 +746,10 @@ function applyChoicePatch(activity, patch) {
 function clearActivityResponses(activity) {
   activity.responseVersion += 1;
   if (activity.type === "choice") activity.answers = {};
-  if (activity.type === "wordcloud") activity.submissions = [];
+  if (activity.type === "wordcloud") {
+    activity.submissions = [];
+    activity.summary = null;
+  }
   if (activity.type === "danmaku") activity.messages = [];
 }
 
@@ -539,6 +758,7 @@ function toSnapshot(room) {
     pin: room.pin,
     createdAt: room.createdAt,
     currentActivityId: room.currentActivityId,
+    spotlight: room.spotlight,
     participants: Array.from(room.participants.values()).map((participant) => ({
       id: participant.id,
       name: participant.name,
@@ -590,6 +810,7 @@ function serializeActivity(activity) {
       showResults: activity.showResults,
       responseVersion: activity.responseVersion,
       responseCount: activity.submissions.length,
+      summary: activity.summary,
       words: Array.from(frequency.entries())
         .map(([text, count]) => ({ text, count }))
         .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text, "zh-Hant"))

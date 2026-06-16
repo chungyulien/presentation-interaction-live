@@ -173,6 +173,15 @@ img {
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
 }
 
+.sidebar-button:disabled,
+.secondary-action:disabled,
+.icon-button:disabled,
+.primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
 .sidebar-button {
   justify-content: flex-start;
   width: 100%;
@@ -657,6 +666,15 @@ img {
   text-align: right;
 }
 
+.word-result-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.word-result-stack.compact {
+  gap: 10px;
+}
+
 .word-cloud {
   display: flex;
   align-content: center;
@@ -692,6 +710,107 @@ img {
 
 .cloud-word small {
   font-size: 0.34em;
+}
+
+.ai-summary,
+.spotlight-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(31, 45, 61, 0.08);
+}
+
+.ai-summary.compact,
+.spotlight-card.compact {
+  gap: 8px;
+  padding: 12px;
+}
+
+.summary-kicker,
+.spotlight-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.summary-kicker span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-summary p,
+.spotlight-card p {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.ai-summary.compact p,
+.spotlight-card.compact p {
+  font-size: 14px;
+}
+
+.summary-tags,
+.spotlight-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.summary-tags span,
+.spotlight-tags span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: #0f746f;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.spotlight-card {
+  border-color: #b8e3dd;
+  background: linear-gradient(135deg, #ffffff, #f0fbf9);
+}
+
+.spotlight-name {
+  color: var(--text);
+  font-size: clamp(24px, 3.2vw, 44px);
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.spotlight-card.compact .spotlight-name {
+  font-size: 22px;
+}
+
+.projection-content .ai-summary,
+.projection-content .spotlight-card {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.projection-content .ai-summary p,
+.projection-content .spotlight-card p,
+.projection-content .spotlight-name {
+  color: #fff;
+}
+
+.projection-content .summary-kicker span,
+.projection-content .summary-kicker,
+.projection-content .spotlight-kicker {
+  color: #8ee4da;
 }
 
 .danmaku-stage {
@@ -1108,6 +1227,26 @@ img {
   min-height: 430px;
   align-content: center;
   gap: 24px 30px;
+}
+
+.screen-content .word-result-stack.has-summary .word-cloud {
+  min-height: 260px;
+}
+
+.screen-content .ai-summary,
+.screen-content .spotlight-card {
+  max-width: 1180px;
+  padding: 24px;
+}
+
+.screen-content .ai-summary p,
+.screen-content .spotlight-card p {
+  font-size: clamp(22px, 2.2vw, 34px);
+}
+
+.screen-content .summary-kicker,
+.screen-content .spotlight-kicker {
+  font-size: 18px;
 }
 
 .screen-content .danmaku-stage {

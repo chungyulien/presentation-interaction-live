@@ -12,6 +12,7 @@ const state = {
   selectedAnswers: {},
   lastSentWord: "",
   lastSentDanmaku: "",
+  summarizingActivityId: "",
   route: getRoute(),
   reconnectTimer: null,
   heartbeatTimer: null,
@@ -236,6 +237,7 @@ function request(type, payload = {}) {
     });
     state.ws.send(JSON.stringify({ type, payload, requestId }));
 
+    const timeoutMs = type === "host:summarize-wordcloud" ? 16000 : 5000;
     setTimeout(() => {
       if (!state.pending.has(requestId)) return;
       state.pending.delete(requestId);
@@ -243,7 +245,7 @@ function request(type, payload = {}) {
       state.error = response.error;
       render();
       resolve(response);
-    }, 5000);
+    }, timeoutMs);
   });
 }
 
@@ -339,6 +341,7 @@ function renderProjectionPreview(snapshot, activeActivity) {
         <span class="projection-label">Projection Preview</span>
         <h2>${escapeHtml(activeActivity?.title || "等待講者開啟下一題...")}</h2>
         ${renderActivityResults(activeActivity, true)}
+        ${renderSpotlight(snapshot.spotlight, true)}
       </div>
     </section>
   `;
@@ -369,11 +372,14 @@ function renderActivityEditor(snapshot, activity) {
   if (!activity) return "";
   const isChoice = activity.type === "choice";
   const meta = getActivityMeta(activity);
+  const isLive = snapshot.currentActivityId === activity.id;
+  const canDraw = isLive && activity.responseCount > 0;
+  const isSummarizing = state.summarizingActivityId === activity.id;
   return `
     <section class="panel editor-panel">
       <div class="panel-header">
         <div><p class="panel-kicker">${meta.kicker}</p><h2>${meta.editorTitle}</h2></div>
-        <span class="${snapshot.currentActivityId === activity.id ? "live-pill" : "draft-pill"}">${snapshot.currentActivityId === activity.id ? "發布中" : "草稿"}</span>
+        <span class="${isLive ? "live-pill" : "draft-pill"}">${isLive ? "發布中" : "草稿"}</span>
       </div>
       <label class="field">
         <span>題目</span>
@@ -407,6 +413,13 @@ function renderActivityEditor(snapshot, activity) {
       }
       <div class="editor-actions">
         <button class="primary-action" data-action="publish-activity" data-id="${attr(activity.id)}">${icon("send")}發布到觀眾端</button>
+        <button class="secondary-action" data-action="draw-participant" data-id="${attr(activity.id)}" ${canDraw ? "" : "disabled"}>${icon("ticket")}抽籤顯示答案</button>
+        ${
+          activity.type === "wordcloud"
+            ? `<button class="secondary-action" data-action="summarize-wordcloud" data-id="${attr(activity.id)}" ${activity.responseCount && !isSummarizing ? "" : "disabled"}>${icon("sparkles")}${isSummarizing ? "總結中..." : activity.summary ? "重新 AI 總結" : "AI 總結"}</button>`
+            : ""
+        }
+        ${snapshot.spotlight ? `<button class="secondary-action" data-action="clear-draw">${icon("eye-off")}清除抽籤顯示</button>` : ""}
         <button class="secondary-action" data-action="toggle-results" data-id="${attr(activity.id)}">${activity.showResults ? "隱藏結果" : "顯示結果"}</button>
         <button class="secondary-action" data-action="clear-responses" data-id="${attr(activity.id)}">${icon("rotate")}清除作答</button>
       </div>
@@ -602,6 +615,7 @@ function renderScreen() {
             ? `
               <div class="screen-type">${activeMeta.label}</div>
               <h1>${escapeHtml(activeActivity.title)}</h1>
+              ${renderSpotlight(snapshot.spotlight)}
               ${renderActivityResults(activeActivity)}
             `
             : `
@@ -622,7 +636,7 @@ function renderActivityResults(activity, compact = false) {
   if (!activity.showResults) return `<div class="empty-results">${icon("eye-off", 30)}<p>結果目前由講者隱藏</p></div>`;
   if (activity.type === "choice") return renderChoiceResults(activity, compact);
   if (activity.type === "danmaku") return renderDanmaku(activity.messages, compact);
-  return renderWordCloud(activity.words, compact);
+  return renderWordCloud(activity.words, compact, activity.summary);
 }
 
 function renderChoiceResults(activity, compact = false) {
@@ -654,21 +668,61 @@ function renderChoiceResults(activity, compact = false) {
   `;
 }
 
-function renderWordCloud(words = [], compact = false) {
+function renderWordCloud(words = [], compact = false, summary = null) {
   if (!words.length) return `<div class="empty-results">${icon("cloud", 30)}<p>文字會在觀眾送出後即時浮現</p></div>`;
   const colors = ["#159e97", "#2d8bd7", "#f5a524", "#ff6f61", "#3d4758", "#7c6ee6"];
   const topCount = Math.max(...words.map((word) => word.count), 1);
   return `
-    <div class="word-cloud ${compact ? "compact" : ""}">
-      ${words
-        .slice(0, compact ? 18 : 40)
-        .map((word, index) => {
-          const weight = word.count / topCount;
-          const size = compact ? 17 + weight * 26 : 21 + weight * 40;
-          return `<span class="cloud-word" style="color:${colors[index % colors.length]};font-size:${size}px">${escapeHtml(word.text)}${word.count > 1 ? `<small>${word.count}</small>` : ""}</span>`;
-        })
-        .join("")}
+    <div class="word-result-stack ${compact ? "compact" : ""} ${summary ? "has-summary" : ""}">
+      ${renderWordSummary(summary, compact)}
+      <div class="word-cloud ${compact ? "compact" : ""}">
+        ${words
+          .slice(0, compact ? 18 : 40)
+          .map((word, index) => {
+            const weight = word.count / topCount;
+            const size = compact ? 17 + weight * 26 : 21 + weight * 40;
+            return `<span class="cloud-word" style="color:${colors[index % colors.length]};font-size:${size}px">${escapeHtml(word.text)}${word.count > 1 ? `<small>${word.count}</small>` : ""}</span>`;
+          })
+          .join("")}
+      </div>
     </div>
+  `;
+}
+
+function renderWordSummary(summary, compact = false) {
+  if (!summary) return "";
+  const topWords = (summary.topWords || []).slice(0, compact ? 3 : 5);
+  return `
+    <section class="ai-summary ${compact ? "compact" : ""}">
+      <div class="summary-kicker">${icon("sparkles")}AI 總結<span>${escapeHtml(summary.model || "摘要")}</span></div>
+      <p>${escapeHtml(summary.text)}</p>
+      ${
+        topWords.length
+          ? `<div class="summary-tags">${topWords
+              .map((word) => `<span>${escapeHtml(word.text)}${word.count > 1 ? ` × ${word.count}` : ""}</span>`)
+              .join("")}</div>`
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderSpotlight(spotlight, compact = false) {
+  if (!spotlight) return "";
+  const answerItems = (spotlight.answerItems || []).slice(0, compact ? 4 : 8);
+  return `
+    <section class="spotlight-card ${compact ? "compact" : ""}">
+      <div class="spotlight-kicker">${icon("ticket")}抽籤結果</div>
+      <div class="spotlight-name">${escapeHtml(spotlight.participantName)}</div>
+      <p>${escapeHtml(spotlight.answerText)}</p>
+      ${
+        answerItems.length > 1
+          ? `<div class="spotlight-tags">${answerItems
+              .map((item) => `<span>${escapeHtml(item)}</span>`)
+              .join("")}</div>`
+          : ""
+      }
+    </section>
   `;
 }
 
@@ -760,6 +814,16 @@ async function handleClick(event) {
     });
   } else if (action === "publish-activity") {
     await request("host:publish-activity", { pin: snapshot.pin, activityId: button.dataset.id });
+  } else if (action === "draw-participant") {
+    await request("host:draw-participant", { pin: snapshot.pin, activityId: button.dataset.id });
+  } else if (action === "clear-draw") {
+    await request("host:clear-draw", { pin: snapshot.pin });
+  } else if (action === "summarize-wordcloud") {
+    state.summarizingActivityId = button.dataset.id;
+    render();
+    await request("host:summarize-wordcloud", { pin: snapshot.pin, activityId: button.dataset.id });
+    state.summarizingActivityId = "";
+    render();
   } else if (action === "toggle-results") {
     await request("host:toggle-results", { pin: snapshot.pin, activityId: button.dataset.id });
   } else if (action === "clear-responses") {
@@ -990,6 +1054,8 @@ function icon(name, size = 18) {
     monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
     copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+    sparkles: '<path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7Z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z"/><path d="M5 13l.7 1.8L7.5 15.5l-1.8.7L5 18l-.7-1.8-1.8-.7 1.8-.7Z"/>',
+    ticket: '<path d="M3 9a3 3 0 1 0 0 6v3h18v-3a3 3 0 1 0 0-6V6H3Z"/><path d="M9 6v12"/>',
     message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/>',
     cloud: '<path d="M17.5 19H7a5 5 0 1 1 1.1-9.88A7 7 0 0 1 21 12.5 4.5 4.5 0 0 1 17.5 19Z"/>',
     bar: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
