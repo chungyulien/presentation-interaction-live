@@ -694,6 +694,62 @@ img {
   font-size: 0.34em;
 }
 
+.danmaku-stage {
+  position: relative;
+  min-height: 290px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.95), rgba(246, 248, 251, 0.72)),
+    radial-gradient(circle at 22% 24%, rgba(21, 158, 151, 0.12), transparent 34%),
+    #fbfcfe;
+}
+
+.danmaku-stage.compact {
+  min-height: 176px;
+}
+
+.danmaku-item {
+  position: absolute;
+  top: calc(8px + var(--lane-top));
+  left: 100%;
+  display: inline-flex;
+  align-items: center;
+  max-width: min(70vw, 760px);
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 24px rgba(31, 45, 61, 0.12);
+  color: var(--text-color);
+  font-size: clamp(18px, 1.7vw, 26px);
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+  animation: danmaku-flow var(--duration) linear infinite;
+  animation-delay: var(--delay);
+  will-change: transform;
+}
+
+.danmaku-stage.compact .danmaku-item {
+  max-width: min(72vw, 420px);
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 16px;
+}
+
+@keyframes danmaku-flow {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-100vw - 120%));
+  }
+}
+
 .empty-results {
   display: grid;
   min-height: 210px;
@@ -1054,6 +1110,16 @@ img {
   gap: 24px 30px;
 }
 
+.screen-content .danmaku-stage {
+  min-height: 440px;
+}
+
+.screen-content .danmaku-item {
+  min-height: 48px;
+  padding: 0 22px;
+  font-size: clamp(24px, 2.4vw, 38px);
+}
+
 .screen-waiting {
   display: grid;
   justify-items: center;
@@ -1174,6 +1240,15 @@ img {
     font-size: clamp(34px, 10vw, 54px);
   }
 
+  .screen-content .danmaku-stage {
+    min-height: 310px;
+  }
+
+  .screen-content .danmaku-item {
+    max-width: 84vw;
+    font-size: 20px;
+  }
+
   .screen-join-panel {
     grid-template-columns: 1fr;
   }
@@ -1191,5 +1266,20 @@ img {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+
+  .danmaku-stage {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .danmaku-item {
+    position: static;
+    transform: none !important;
+    animation: none !important;
   }
 }

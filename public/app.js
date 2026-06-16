@@ -11,6 +11,7 @@ const state = {
   answers: {},
   selectedAnswers: {},
   lastSentWord: "",
+  lastSentDanmaku: "",
   route: getRoute(),
   reconnectTimer: null,
   heartbeatTimer: null,
@@ -53,7 +54,7 @@ function connect() {
       return;
     }
     if (message.type === "snapshot") {
-      const shouldChime = shouldPlayOperatorWordChime(state.snapshot, message.snapshot);
+      const shouldChime = shouldPlayOperatorTextChime(state.snapshot, message.snapshot);
       state.closed = false;
       state.snapshot = message.snapshot;
       ensureSelectedActivity();
@@ -163,19 +164,37 @@ function playWordChime(variant = "participant", resumeAttempted = false) {
   });
 }
 
-function shouldPlayOperatorWordChime(previousSnapshot, nextSnapshot) {
+function shouldPlayOperatorTextChime(previousSnapshot, nextSnapshot) {
   if (!previousSnapshot || !nextSnapshot || state.route.view === "participant") return false;
   const activeActivity = nextSnapshot.activities.find(
-    (activity) => activity.id === nextSnapshot.currentActivityId && activity.type === "wordcloud"
+    (activity) =>
+      activity.id === nextSnapshot.currentActivityId && (activity.type === "wordcloud" || activity.type === "danmaku")
   );
   if (!activeActivity) return false;
   const previousActivity = previousSnapshot.activities.find((activity) => activity.id === activeActivity.id);
   if (!previousActivity) return false;
-  return getWordTotal(activeActivity) > getWordTotal(previousActivity);
+  return getTextStreamTotal(activeActivity) > getTextStreamTotal(previousActivity);
 }
 
-function getWordTotal(activity) {
-  return activity?.words?.reduce((sum, word) => sum + word.count, 0) || activity?.responseCount || 0;
+function getTextStreamTotal(activity) {
+  if (activity?.type === "wordcloud") {
+    return activity.words?.reduce((sum, word) => sum + word.count, 0) || activity.responseCount || 0;
+  }
+  if (activity?.type === "danmaku") {
+    return activity.responseCount || activity.messages?.length || 0;
+  }
+  return 0;
+}
+
+function getActivityMeta(activityOrType) {
+  const type = typeof activityOrType === "string" ? activityOrType : activityOrType?.type;
+  if (type === "choice") {
+    return { label: "選擇題", icon: "bar", kicker: "Multiple Choice", editorTitle: "選擇題設定" };
+  }
+  if (type === "danmaku") {
+    return { label: "彈幕", icon: "message", kicker: "Danmaku", editorTitle: "彈幕設定" };
+  }
+  return { label: "文字雲", icon: "cloud", kicker: "Word Cloud", editorTitle: "文字雲設定" };
 }
 
 async function restoreContext() {
@@ -243,7 +262,7 @@ function renderPresenter() {
         <section class="launch-panel">
           <div class="brand-lockup"><span class="brand-mark">${icon("radio")}</span><span>互動堂 Live</span></div>
           <h1>簡報中，讓觀眾立刻參與。</h1>
-          <p>建立房間後，系統會產生 6 碼 PIN 與 QR Code。觀眾無需登入即可加入，即時回答選擇題或送出文字雲。</p>
+          <p>建立房間後，系統會產生 6 碼 PIN 與 QR Code。觀眾無需登入即可加入，即時回答選擇題、送出文字雲或發表彈幕想法。</p>
           <button class="primary-action" data-action="create-room" ${state.connected ? "" : "disabled"}>${icon("plus")}建立房間</button>
           ${state.connected ? "" : `<span class="status-line">正在連接即時伺服器...</span>`}
           ${messageLine()}
@@ -333,10 +352,11 @@ function renderActivityPicker(snapshot) {
         .map((activity) => {
           const selected = state.selectedActivityId === activity.id;
           const current = snapshot.currentActivityId === activity.id;
+          const meta = getActivityMeta(activity);
           return `
             <button class="activity-tab ${selected ? "selected" : ""}" data-action="select-activity" data-id="${attr(activity.id)}">
-              <span class="tab-icon">${icon(activity.type === "choice" ? "bar" : "cloud")}</span>
-              <span><strong>${activity.type === "choice" ? "選擇題" : "文字雲"}</strong><small>${current ? "發布中" : `${activity.responseCount} 回覆`}</small></span>
+              <span class="tab-icon">${icon(meta.icon)}</span>
+              <span><strong>${meta.label}</strong><small>${current ? "發布中" : `${activity.responseCount} 回覆`}</small></span>
             </button>
           `;
         })
@@ -348,10 +368,11 @@ function renderActivityPicker(snapshot) {
 function renderActivityEditor(snapshot, activity) {
   if (!activity) return "";
   const isChoice = activity.type === "choice";
+  const meta = getActivityMeta(activity);
   return `
     <section class="panel editor-panel">
       <div class="panel-header">
-        <div><p class="panel-kicker">${isChoice ? "Multiple Choice" : "Word Cloud"}</p><h2>${isChoice ? "選擇題設定" : "文字雲設定"}</h2></div>
+        <div><p class="panel-kicker">${meta.kicker}</p><h2>${meta.editorTitle}</h2></div>
         <span class="${snapshot.currentActivityId === activity.id ? "live-pill" : "draft-pill"}">${snapshot.currentActivityId === activity.id ? "發布中" : "草稿"}</span>
       </div>
       <label class="field">
@@ -381,7 +402,7 @@ function renderActivityEditor(snapshot, activity) {
             </div>
           `
           : `
-            <div class="word-settings">${icon("cloud")}<p>觀眾每次最多輸入 15 個字，系統會過濾不當詞並依頻率放大文字。</p></div>
+            ${renderTextActivitySettings(activity)}
           `
       }
       <div class="editor-actions">
@@ -390,6 +411,17 @@ function renderActivityEditor(snapshot, activity) {
         <button class="secondary-action" data-action="clear-responses" data-id="${attr(activity.id)}">${icon("rotate")}清除作答</button>
       </div>
     </section>
+  `;
+}
+
+function renderTextActivitySettings(activity) {
+  if (activity.type === "danmaku") {
+    return `
+      <div class="word-settings">${icon("message")}<p>觀眾每次最多輸入 40 個字，留言會即時以彈幕方式出現在操作端與投影端。</p></div>
+    `;
+  }
+  return `
+    <div class="word-settings">${icon("cloud")}<p>觀眾每次最多輸入 15 個字，系統會過濾不當詞並依頻率放大文字。</p></div>
   `;
 }
 
@@ -430,8 +462,9 @@ function renderRightRail(snapshot, activeActivity) {
 
 function renderPhonePreview(activeActivity) {
   if (!activeActivity) return `<div class="mini-wait">${icon("check")}等待中</div>`;
+  if (activeActivity.type === "danmaku") return `<div class="mini-input">發表想法...</div>`;
   if (activeActivity.type === "wordcloud") return `<div class="mini-input">輸入一個詞...</div>`;
-  return activeActivity.options
+  return (activeActivity.options || [])
     .slice(0, 3)
     .map((option) => `<div class="mini-choice" style="border-color:${attr(option.color)}">${escapeHtml(option.text)}</div>`)
     .join("");
@@ -468,7 +501,9 @@ function renderAudience() {
             ? renderWaitingState()
             : activeActivity.type === "choice"
               ? renderChoiceAnswer(snapshot, activeActivity)
-              : renderWordAnswer(activeActivity)
+              : activeActivity.type === "danmaku"
+                ? renderDanmakuAnswer(activeActivity)
+                : renderWordAnswer(activeActivity)
         }
         ${activeActivity ? `<div class="audience-results">${renderActivityResults(activeActivity, true)}</div>` : ""}
         ${messageLine()}
@@ -523,6 +558,18 @@ function renderWordAnswer(activity) {
   `;
 }
 
+function renderDanmakuAnswer(activity) {
+  return `
+    <form class="answer-block" data-form="submit-danmaku">
+      <div class="answer-type">${icon("message")}彈幕</div>
+      <h1>${escapeHtml(activity.title)}</h1>
+      <label class="field"><span>輸入 40 字以內</span><input name="danmaku" maxlength="40" placeholder="例如：我希望AI幫我整理靈感" /></label>
+      <div class="remaining-row"><span data-remaining>40 字可用</span>${state.lastSentDanmaku ? `<strong>「${escapeHtml(state.lastSentDanmaku)}」已送出</strong>` : ""}</div>
+      <button class="primary-action full-width">${icon("send")}送出想法</button>
+    </form>
+  `;
+}
+
 function renderScreen() {
   const snapshot = state.snapshot;
   if (!snapshot) {
@@ -540,6 +587,7 @@ function renderScreen() {
   }
 
   const activeActivity = getActiveActivity(snapshot);
+  const activeMeta = getActivityMeta(activeActivity);
   return `
     <main class="screen-shell">
       <aside class="screen-join-panel">
@@ -552,7 +600,7 @@ function renderScreen() {
         ${
           activeActivity
             ? `
-              <div class="screen-type">${activeActivity.type === "choice" ? "選擇題" : "文字雲"}</div>
+              <div class="screen-type">${activeMeta.label}</div>
               <h1>${escapeHtml(activeActivity.title)}</h1>
               ${renderActivityResults(activeActivity)}
             `
@@ -573,6 +621,7 @@ function renderActivityResults(activity, compact = false) {
   if (!activity) return `<div class="empty-results">${icon("cloud", 30)}<p>等待講者開啟下一題...</p></div>`;
   if (!activity.showResults) return `<div class="empty-results">${icon("eye-off", 30)}<p>結果目前由講者隱藏</p></div>`;
   if (activity.type === "choice") return renderChoiceResults(activity, compact);
+  if (activity.type === "danmaku") return renderDanmaku(activity.messages, compact);
   return renderWordCloud(activity.words, compact);
 }
 
@@ -617,6 +666,30 @@ function renderWordCloud(words = [], compact = false) {
           const weight = word.count / topCount;
           const size = compact ? 17 + weight * 26 : 21 + weight * 40;
           return `<span class="cloud-word" style="color:${colors[index % colors.length]};font-size:${size}px">${escapeHtml(word.text)}${word.count > 1 ? `<small>${word.count}</small>` : ""}</span>`;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderDanmaku(messages = [], compact = false) {
+  if (!messages.length) return `<div class="empty-results">${icon("message", 30)}<p>想法會在觀眾送出後即時飄過</p></div>`;
+  const colors = ["#159e97", "#2d8bd7", "#f5a524", "#ff6f61", "#3d4758", "#7c6ee6"];
+  const visibleMessages = messages.slice(-(compact ? 14 : 36));
+  const laneCount = compact ? 5 : 9;
+  return `
+    <div class="danmaku-stage ${compact ? "compact" : ""}" aria-live="polite">
+      ${visibleMessages
+        .map((message, index) => {
+          const lane = index % laneCount;
+          const laneTop = laneCount === 1 ? 0 : Math.round((lane / (laneCount - 1)) * 78);
+          const duration = compact ? 10 + (index % 4) * 1.2 : 15 + (index % 6) * 1.4;
+          const delay = -1 * (index % laneCount) * (compact ? 0.9 : 1.15);
+          return `
+            <span class="danmaku-item" style="--lane-top:${laneTop}%;--duration:${duration}s;--delay:${delay}s;--text-color:${colors[index % colors.length]}">
+              ${escapeHtml(message.text)}
+            </span>
+          `;
         })
         .join("")}
     </div>
@@ -736,6 +809,25 @@ async function handleSubmit(event) {
       }, 1400);
     }
   }
+
+  if (form.dataset.form === "submit-danmaku") {
+    const snapshot = state.snapshot;
+    const activeActivity = getActiveActivity(snapshot);
+    const text = String(formData.get("danmaku") || "").trim();
+    const response = await request("participant:submit-danmaku", {
+      pin: snapshot.pin,
+      activityId: activeActivity.id,
+      text
+    });
+    if (response.ok) {
+      state.lastSentDanmaku = response.text;
+      queueOrPlayWordChime("participant");
+      setTimeout(() => {
+        state.lastSentDanmaku = "";
+        render();
+      }, 1400);
+    }
+  }
 }
 
 async function handleChange(event) {
@@ -773,6 +865,10 @@ function handleInput(event) {
   if (event.target.name === "word") {
     const remaining = event.target.closest("form")?.querySelector("[data-remaining]");
     if (remaining) remaining.textContent = `${15 - event.target.value.length} 字可用`;
+  }
+  if (event.target.name === "danmaku") {
+    const remaining = event.target.closest("form")?.querySelector("[data-remaining]");
+    if (remaining) remaining.textContent = `${40 - event.target.value.length} 字可用`;
   }
   if (event.target.name === "pin") {
     event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
@@ -894,6 +990,7 @@ function icon(name, size = 18) {
     monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
     copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+    message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/>',
     cloud: '<path d="M17.5 19H7a5 5 0 1 1 1.1-9.88A7 7 0 0 1 21 12.5 4.5 4.5 0 0 1 17.5 19Z"/>',
     bar: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
     rotate: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/>',

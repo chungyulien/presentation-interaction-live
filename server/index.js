@@ -9,6 +9,8 @@ const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || "0.0.0.0";
 const PIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_WORD_LENGTH = 15;
+const MAX_DANMAKU_LENGTH = 40;
+const MAX_DANMAKU_MESSAGES = 120;
 const BLOCKED_TERMS = ["髒話", "白痴", "笨蛋", "badword", "spam"];
 
 const __filename = fileURLToPath(import.meta.url);
@@ -207,6 +209,7 @@ function handleMessage(client, rawMessage) {
   if (type === "host:close-room") return handleCloseRoom(payload, reply);
   if (type === "participant:answer-choice") return handleAnswerChoice(client, payload, reply);
   if (type === "participant:submit-word") return handleSubmitWord(client, payload, reply);
+  if (type === "participant:submit-danmaku") return handleSubmitDanmaku(client, payload, reply);
   if (type === "client:ping") return send(client, { type: "pong", now: Date.now() });
 
   reply({ ok: false, error: "未知操作。" });
@@ -379,6 +382,34 @@ function handleSubmitWord(client, { pin, activityId, text }, reply) {
   emitSnapshot(room);
 }
 
+function handleSubmitDanmaku(client, { pin, activityId, text }, reply) {
+  const room = getRoom(pin);
+  if (!room) return reply({ ok: false, error: "這個房間不存在。" });
+  if (!room.participants.has(client.id)) return reply({ ok: false, error: "請先加入房間。" });
+
+  const activity = findActivity(room, activityId);
+  if (!activity || activity.type !== "danmaku" || room.currentActivityId !== activity.id) {
+    return reply({ ok: false, error: "目前沒有開放彈幕互動。" });
+  }
+
+  const clean = sanitizeText(text, MAX_DANMAKU_LENGTH);
+  if (!clean) return reply({ ok: false, error: `請輸入 1 到 ${MAX_DANMAKU_LENGTH} 個字。` });
+  if (containsBlockedTerm(clean)) return reply({ ok: false, error: "這段文字包含不適合顯示的內容，請換個說法。" });
+
+  activity.messages.push({
+    id: randomUUID(),
+    participantId: client.id,
+    text: clean,
+    createdAt: Date.now()
+  });
+  if (activity.messages.length > MAX_DANMAKU_MESSAGES) {
+    activity.messages.splice(0, activity.messages.length - MAX_DANMAKU_MESSAGES);
+  }
+
+  reply({ ok: true, text: clean });
+  emitSnapshot(room);
+}
+
 function createRoom() {
   let pin = generatePin();
   while (rooms.has(pin)) pin = generatePin();
@@ -420,6 +451,15 @@ function createDefaultActivities() {
       showResults: true,
       responseVersion: 1,
       submissions: []
+    },
+    {
+      id: "danmaku-main",
+      type: "danmaku",
+      status: "draft",
+      title: "請分享你現在的想法",
+      showResults: true,
+      responseVersion: 1,
+      messages: []
     }
   ];
 }
@@ -491,6 +531,7 @@ function clearActivityResponses(activity) {
   activity.responseVersion += 1;
   if (activity.type === "choice") activity.answers = {};
   if (activity.type === "wordcloud") activity.submissions = [];
+  if (activity.type === "danmaku") activity.messages = [];
 }
 
 function toSnapshot(room) {
@@ -535,10 +576,42 @@ function serializeActivity(activity) {
     };
   }
 
-  const frequency = new Map();
-  activity.submissions.forEach((item) => {
-    frequency.set(item.text, (frequency.get(item.text) || 0) + 1);
-  });
+  if (activity.type === "wordcloud") {
+    const frequency = new Map();
+    activity.submissions.forEach((item) => {
+      frequency.set(item.text, (frequency.get(item.text) || 0) + 1);
+    });
+
+    return {
+      id: activity.id,
+      type: activity.type,
+      status: activity.status,
+      title: activity.title,
+      showResults: activity.showResults,
+      responseVersion: activity.responseVersion,
+      responseCount: activity.submissions.length,
+      words: Array.from(frequency.entries())
+        .map(([text, count]) => ({ text, count }))
+        .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text, "zh-Hant"))
+    };
+  }
+
+  if (activity.type === "danmaku") {
+    return {
+      id: activity.id,
+      type: activity.type,
+      status: activity.status,
+      title: activity.title,
+      showResults: activity.showResults,
+      responseVersion: activity.responseVersion,
+      responseCount: activity.messages.length,
+      messages: activity.messages.slice(-60).map((message) => ({
+        id: message.id,
+        text: message.text,
+        createdAt: message.createdAt
+      }))
+    };
+  }
 
   return {
     id: activity.id,
@@ -547,10 +620,7 @@ function serializeActivity(activity) {
     title: activity.title,
     showResults: activity.showResults,
     responseVersion: activity.responseVersion,
-    responseCount: activity.submissions.length,
-    words: Array.from(frequency.entries())
-      .map(([text, count]) => ({ text, count }))
-      .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text, "zh-Hant"))
+    responseCount: 0
   };
 }
 
