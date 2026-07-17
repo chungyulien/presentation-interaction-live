@@ -8,6 +8,8 @@ const state = {
   closed: false,
   selectedActivityId: "",
   joined: false,
+  joinName: "",
+  participantName: "",
   answers: {},
   selectedAnswers: {},
   lastSentWord: "",
@@ -67,6 +69,7 @@ function connect() {
       state.closed = true;
       state.snapshot = null;
       state.joined = false;
+      state.participantName = "";
       window.localStorage.removeItem("interaction-live-pin");
       render();
     }
@@ -245,6 +248,14 @@ function request(type, payload = {}) {
 }
 
 function render() {
+  const isTypingJoinName =
+    state.route.view === "participant" &&
+    !state.joined &&
+    !state.error &&
+    document.activeElement?.name === "name";
+  // Replacing a focused input interrupts mobile IME composition and can dismiss the keyboard.
+  if (isTypingJoinName) return;
+
   if (state.route.view === "participant") app.innerHTML = renderAudience();
   else if (state.route.view === "screen") app.innerHTML = renderScreen();
   else app.innerHTML = renderPresenter();
@@ -486,9 +497,12 @@ function renderAudience() {
         <form class="join-card" data-form="join-participant">
           <span class="audience-brand">互動堂 Live</span>
           <h1>${state.closed ? "房間已關閉" : "輸入 PIN 加入互動"}</h1>
-          <label class="field"><span>Room PIN</span><input name="pin" value="${attr(state.route.pin || "")}" maxlength="6" placeholder="ABC123" /></label>
-          <label class="field"><span>姓名</span><input name="name" maxlength="18" placeholder="例如：小安" autocomplete="name" required /></label>
-          <button class="primary-action" ${state.connected ? "" : "disabled"}>${icon("login")}立即加入</button>
+          <label class="field"><span>Room PIN</span><input name="pin" value="${attr(state.route.pin || "")}" maxlength="6" placeholder="ABC123" inputmode="text" autocapitalize="characters" autocomplete="off" /></label>
+          <label class="field"><span>姓名（選填）</span><input name="name" value="${attr(state.joinName)}" maxlength="18" placeholder="可輸入姓名，或直接快速加入" type="text" inputmode="text" autocomplete="off" autocapitalize="off" enterkeyhint="go" spellcheck="false" /></label>
+          <div class="join-actions">
+            <button class="primary-action" type="submit" data-join-mode="quick" ${state.connected ? "" : "disabled"}>${icon("sparkles")}快速加入</button>
+            <button class="secondary-action" type="submit" data-join-mode="named" ${state.connected ? "" : "disabled"}>${icon("login")}用姓名加入</button>
+          </div>
           ${state.connected ? "" : `<span class="status-line">正在連接即時伺服器...</span>`}
           ${messageLine()}
         </form>
@@ -501,7 +515,10 @@ function renderAudience() {
     <main class="audience-shell">
       <section class="audience-card">
         <header class="audience-header">
-          <span class="mini-pin">${escapeHtml(snapshot.pin)}</span>
+          <div class="audience-identity">
+            <span class="mini-pin">${escapeHtml(snapshot.pin)}</span>
+            ${state.participantName ? `<strong>${escapeHtml(state.participantName)}</strong>` : ""}
+          </div>
           <span>${icon("users")}${snapshot.participants.length}</span>
         </header>
         ${
@@ -840,13 +857,18 @@ async function handleSubmit(event) {
   if (form.dataset.form === "join-participant") {
     const pin = String(formData.get("pin") || "").toUpperCase();
     const name = String(formData.get("name") || "").trim();
-    if (!name) {
-      state.error = "請輸入姓名後再加入。";
+    const quickJoin = event.submitter?.dataset.joinMode === "quick" || (!event.submitter && !name);
+    if (!quickJoin && !name) {
+      state.error = "請輸入姓名，或使用快速加入。";
       render();
       return;
     }
-    const response = await request("participant:join", { pin, name });
-    if (response.ok) state.joined = true;
+    const response = await request("participant:join", { pin, name, quickJoin });
+    if (response.ok) {
+      state.joined = true;
+      state.participantName = response.name || name;
+      state.joinName = "";
+    }
     render();
   }
 
@@ -926,6 +948,9 @@ async function handleChange(event) {
 }
 
 function handleInput(event) {
+  if (event.target.name === "name") {
+    state.joinName = event.target.value;
+  }
   if (event.target.name === "word") {
     const remaining = event.target.closest("form")?.querySelector("[data-remaining]");
     if (remaining) remaining.textContent = `${15 - event.target.value.length} 字可用`;

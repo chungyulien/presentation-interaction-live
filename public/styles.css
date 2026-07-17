@@ -1043,7 +1043,23 @@ img {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 22px;
+}
+
+.audience-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.audience-identity strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .answer-block {
@@ -1147,6 +1163,16 @@ img {
 .join-card {
   display: grid;
   gap: 18px;
+}
+
+.join-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.join-actions .primary-action,
+.join-actions .secondary-action {
+  width: 100%;
 }
 
 .screen-shell {

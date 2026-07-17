@@ -241,12 +241,14 @@ function handleScreenJoin(client, { pin }, reply) {
   reply({ ok: true, snapshot: toSnapshot(room) });
 }
 
-function handleParticipantJoin(client, { pin, name }, reply) {
+function handleParticipantJoin(client, { pin, name, quickJoin = false }, reply) {
   const room = getRoom(pin);
   if (!room) return reply({ ok: false, error: "房間代碼不存在，請確認 PIN。" });
 
-  const displayName = sanitizeText(name, 18);
-  if (!displayName) return reply({ ok: false, error: "請輸入姓名後再加入。" });
+  const isQuickJoin = quickJoin === true;
+  const displayName = isQuickJoin ? `幸運星${room.nextLuckyNumber}號` : sanitizeText(name, 18);
+  if (!displayName) return reply({ ok: false, error: "請輸入姓名，或使用快速加入。" });
+  if (isQuickJoin) room.nextLuckyNumber += 1;
 
   joinClientRoom(client, room.pin, "participant");
   room.participants.set(client.id, {
@@ -255,7 +257,7 @@ function handleParticipantJoin(client, { pin, name }, reply) {
     joinedAt: Date.now()
   });
 
-  reply({ ok: true, participantId: client.id, snapshot: toSnapshot(room) });
+  reply({ ok: true, participantId: client.id, name: displayName, snapshot: toSnapshot(room) });
   emitSnapshot(room);
 }
 
@@ -635,6 +637,7 @@ function createRoom() {
     createdAt: Date.now(),
     currentActivityId: null,
     spotlight: null,
+    nextLuckyNumber: 1,
     participants: new Map(),
     activities: createDefaultActivities()
   };
